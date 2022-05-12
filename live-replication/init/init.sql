@@ -1,0 +1,4 @@
+CREATE DATABASE appdb;
+\c appdb
+CREATE TABLE messages (id serial PRIMARY KEY, ts TIMESTAMP DEFAULT now());
+INSERT INTO messages DEFAULT VALUES;

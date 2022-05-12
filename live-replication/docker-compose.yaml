@@ -1,0 +1,72 @@
+x-postgres-common: &postgres-common
+  image: postgres:17
+  user: postgres
+  restart: always
+  healthcheck:
+    test: 'pg_isready -U user --dbname=postgres'
+    retries: 5
+
+services:
+  postgres:
+    <<: *postgres-common
+    container_name: postgres
+    ports:
+      - 15432:5432
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_DB: postgres
+      POSTGRES_PASSWORD: password
+    volumes:
+      - ./init/init.sql:/docker-entrypoint-initdb.d/init.sql
+
+  pgadmin:
+    container_name: pgadmin2
+    image: dpage/pgadmin4
+    environment:
+      PGADMIN_DEFAULT_EMAIL: test@test.com
+      PGADMIN_DEFAULT_PASSWORD: test
+      PGADMIN_LISTEN_PORT: 8080
+    ports:
+      - "18080:8080"
+
+  db-writer:
+    container_name: db-writer
+    image: postgres:17
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: password
+    volumes:
+      - "./simulation.sh:/app/simulation.sh"
+    command:
+      - "/app/simulation.sh"
+
+  replica:
+    <<: *postgres-common
+    container_name: replica
+    ports:
+      - 15433:5432
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_DB: postgres
+      POSTGRES_PASSWORD: password
+      PGUSER: replicator
+      PGPASSWORD: rep_secret
+    command: |
+      sh -c '
+          # Wait for primary
+          until pg_isready -h postgres -p 5432; do sleep 2; done;
+
+          # Take base backup + streaming setup
+          until pg_basebackup -h postgres -D /var/lib/postgresql/data \
+              -P -v -R --port 5432\
+              --slot=rep_slot_1
+          do
+              sleep 1
+          done
+          echo "Base backup complete";
+          chmod 0700 /var/lib/postgresql/data;
+          # Start the replica server
+          postgres
+      '
